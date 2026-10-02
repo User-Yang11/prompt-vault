@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Prompt Vault · 本地提示词管理器，支持变量占位符实时渲染">
+<title>Prompt Vault · 提示词管理</title>
+<style>
+/* ============================================================
+   配色与尺寸统一由 CSS 变量管理（深色主题）
+   ============================================================ */
+:root {
+  --bg:        #12141a;   /* 页面底色 */
+  --bg-soft:   #171a21;   /* 侧栏 / 工具栏底色 */
+  --panel:     #1d212a;   /* 卡片 / 输入框底色 */
+  --panel-2:   #232833;   /* 悬停 / 次级卡片 */
+  --border:    #2c3240;   /* 分隔线 */
+  --border-2:  #3a4252;   /* 强调分隔线 */
+  --text:      #e7eaf0;   /* 主文字 */
+  --text-dim:  #98a1b2;   /* 次要文字 */
+  --text-mute: #6a7386;   /* 弱化文字 */
+  --accent:    #6ea8fe;   /* 主强调色 */
+  --accent-2:  #8b7bf7;   /* 次强调色 */
+  --accent-ink:#0d1424;   /* 强调色上的文字 */
+  --star:      #ffc857;   /* 收藏星标 */
+  --danger:    #ef5f6b;   /* 危险操作 */
+  --ok:        #4ec9a8;   /* 成功提示 */
+
+  --radius:    10px;
+  --radius-sm: 7px;
+  --radius-xs: 5px;
+  --shadow:    0 10px 30px rgba(0, 0, 0, .45);
+  --sidebar-w: 306px;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC",
+          "Hiragino Sans GB", "Source Han Sans SC", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 统一滚动条样式 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333a48; border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #46506380; background-clip: content-box; }
+
+/* ------------------------------------------------------------
+   顶部工具栏
+   ------------------------------------------------------------ */
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+  z-index: 5;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  font-weight: 650;
+  letter-spacing: .2px;
+  user-select: none;
+}
+
+.brand .logo {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-ink);
+  font-size: 14px; font-weight: 800;
+}
+
+.brand small { display: block; font-weight: 400; font-size: 11px; color: var(--text-mute); line-height: 1.2; }
+
+.toolbar .spacer { flex: 1 1 auto; }
+
+/* ------------------------------------------------------------
+   按钮
+   ------------------------------------------------------------ */
+.btn {
+  appearance: none;
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s, transform .06s;
+}
+.btn:hover { background: var(--panel-2); border-color: #4a5468; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.btn.primary {
+  background: linear-gradient(135deg, var(--accent), #5b8fe8);
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.btn.primary:hover { filter: brightness(1.08); }
+
+.btn.danger { color: #ffbcc2; border-color: #5d3038; background: #2a1e23; }
+.btn.danger:hover { background: #3a2429; border-color: var(--danger); }
+
+.btn.ghost { background: transparent; }
+
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* ------------------------------------------------------------
+   主体布局
+   ------------------------------------------------------------ */
+.layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* ---------------- 左侧栏 ---------------- */
+.sidebar {
+  flex: 0 0 var(--sidebar-w);
+  width: var(--sidebar-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-soft);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-head {
+  flex: none;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.prompt-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px; }
+
+.item {
+  position: relative;
+  padding: 9px 10px 9px 11px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+  transition: background .14s, border-color .14s;
+}
+.item:hover { background: var(--panel-2); }
+.item.active { background: #22304a; border-color: var(--accent); }
+.item.active::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 3px; background: var(--accent);
+}
+
+.item-top { display: flex; align-items: flex-start; gap: 6px; }
+
+.item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  line-height: 1.45;
+  word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.item.active .item-title { color: #fff; }
+
+.star {
+  flex: none;
+  appearance: none; border: none; background: none; padding: 0 2px;
+  font-size: 15px; line-height: 1.2; cursor: pointer;
+  color: var(--text-mute);
+  transition: color .14s, transform .1s;
+}
+.star:hover { transform: scale(1.15); color: var(--star); }
+.star.on { color: var(--star); }
+
+.item-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+.tag {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #2b3242;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.item.active .tag { background: #2d3d5c; color: #cadcff; border-color: #3d5480; }
+
+.item-meta { margin-top: 6px; font-size: 11px; color: var(--text-mute); }
+
+.sidebar-foot {
+  flex: none;
+  padding: 7px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-mute);
+}
+
+.empty-tip {
+  padding: 26px 14px;
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 12.5px;
+  line-height: 1.9;
+}
+
+/* ---------------- 右侧编辑区 ---------------- */
+.editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: .3px;
+}
+.card-title .spacer { flex: 1 1 auto; }
+.card-title .hint { font-weight: 400; color: var(--text-mute); font-size: 11.5px; }
+
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.field:last-child { margin-bottom: 0; }
+.field label { font-size: 12px; color: var(--text-dim); }
+
+.input, textarea {
+  width: 100%;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px #6ea8fe26;
+  background: #1a1e27;
+}
+.input::placeholder, textarea::placeholder { color: #5c6577; }
+
+select.input {
+  appearance: none;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+                    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+.title-row { display: flex; gap: 8px; align-items: center; }
+.title-row .input { font-size: 16px; font-weight: 650; padding: 9px 11px; }
+
+/* 正文编辑器：等宽字体 + 纵向可拉伸 */
+textarea#bodyInput {
+  min-height: 240px;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.72;
+  white-space: pre-wrap;
+}
+
+/* ---------------- 变量输入区 ---------------- */
+.var-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 9px; }
+
+.var-item { display: flex; flex-direction: column; gap: 4px; }
+.var-item .var-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 6px;
+}
+.var-item .var-count { color: var(--text-mute); font-size: 10.5px; }
+.var-item input { font-family: var(--mono); font-size: 12.5px; padding: 7px 9px; }
+
+/* ---------------- 预览区 ---------------- */
+.preview {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  max-height: 460px;
+  overflow: auto;
+  margin: 0;
+  color: #dfe4ec;
+}
+
+/* 未填值的占位符高亮 */
+.preview .ph {
+  color: var(--star);
+  background: #ffc8571f;
+  border: 1px dashed #ffc85766;
+  border-radius: var(--radius-xs);
+  padding: 0 3px;
+}
+
+.preview .ph-empty { color: var(--text-mute); font-style: italic; }
+
+/* 提示条 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 18px);
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 9px 16px;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 99;
+  max-width: 84vw;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.ok { border-color: #2f6b5b; }
+.toast.err { border-color: #7a3b43; }
+
+/* 无内容占位 */
+.placeholder-note { color: var(--text-mute); font-size: 12.5px; padding: 6px 0; }
+
+/* ------------------------------------------------------------
+   窄屏（<768px）：改为上下布局
+   ------------------------------------------------------------ */
+@media (max-width: 768px) {
+  body { overflow: auto; }
+  .layout { flex-direction: column; }
+  .sidebar {
+    flex: none; width: auto;
+    max-height: 42vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .editor { overflow: visible; padding: 12px; }
+  .var-grid { grid-template-columns: 1fr; }
+  .brand small { display: none; }
+  .toolbar { padding: 8px 10px; gap: 6px; }
+  .btn { padding: 6px 10px; font-size: 12.5px; }
+  textarea#bodyInput { min-height: 180px; }
+  .preview { max-height: 340px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== 顶部工具栏 ==================== -->
+<header class="toolbar">
+  <div class="brand">
+    <span class="logo">P</span>
+    <span>Prompt Vault<small>本地提示词管理器</small></span>
+  </div>
+  <button class="btn primary" id="btnNew"  type="button">＋ 新建</button>
+  <button class="btn danger"  id="btnDel"  type="button">🗑 删除</button>
+  <button class="btn"         id="btnExport" type="button">⬇ 导出 JSON</button>
+  <button class="btn"         id="btnImport" type="button">⬆ 导入 JSON</button>
+  <span class="spacer"></span>
+  <span class="hint" id="storeHint" style="font-size:11.5px;color:var(--text-mute)">数据仅存于本机浏览器</span>
+</header>
+
+<!-- ==================== 主体 ==================== -->
+<div class="layout">
+
+  <!-- 左侧：列表 -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <input class="input" id="searchInput" type="search" placeholder="🔍 搜索标题 / 标签 / 正文…" autocomplete="off">
+      <select class="input" id="tagFilter" title="按标签筛选"></select>
+    </div>
+    <div class="prompt-list" id="promptList"></div>
+    <div class="sidebar-foot" id="listFoot"></div>
+  </aside>
+
+  <!-- 右侧：编辑区 -->
+  <main class="editor" id="editor">
+
+    <!-- 标题 + 标签 + 正文 -->
+    <section class="card">
+      <div class="title-row">
+        <input class="input" id="titleInput" type="text" placeholder="Prompt 标题…" autocomplete="off">
+        <button class="star" id="favBtn" type="button" title="收藏 / 取消收藏" style="font-size:22px">☆</button>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="tagsInput">标签（英文逗号或中文逗号分隔）</label>
+        <input class="input" id="tagsInput" type="text" placeholder="例如：开发, 代码质量" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="bodyInput">Prompt 正文（用 <code>{{变量名}}</code> 声明变量）</label>
+        <textarea id="bodyInput" spellcheck="false" placeholder="你是一位 {{角色}}，请帮我……"></textarea>
+      </div>
+    </section>
+
+    <!-- 变量输入 -->
+    <section class="card" id="varsCard">
+      <div class="card-title">
+        <span>变量填充</span>
+        <span class="hint" id="varsHint"></span>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="btnClearVars" type="button" style="padding:3px 9px;font-size:12px">清空变量值</button>
+      </div>
+      <div class="var-grid" id="varsPanel"></div>
+    </section>
+
+    <!-- 最终预览 -->
+    <section class="card">
+      <div class="card-title">
+        <span>最终 Prompt 预览</span>
+        <span class="hint" id="previewHint"></span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="btnCopy" type="button" style="padding:4px 12px;font-size:12.5px">📋 复制</button>
+      </div>
+      <pre class="preview" id="previewPanel"></pre>
+    </section>
+
+  </main>
+</div>
+
+<!-- 隐藏的导入文件选择器 -->
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+<!-- 轻提示 -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ================================================================================
+ * Prompt Vault —— 单文件提示词管理工具
+ * 架构约定：
+ *   1. 全应用只有【一个】状态对象 state；
+ *   2. 所有 DOM 写入都收敛在 render* 系列函数里，事件回调只负责「改 state → 调 render」；
+ *   3. 为了避免输入时光标丢失，render 拆成若干粒度：列表 / 编辑器 / 变量区 / 预览区，
+ *      输入回调只重绘受影响的那一块，而不是整页重建。
+ * ============================================================================== */
+(function () {
+
+  /* ============================== 常量 ============================== */
+
+  /** localStorage 存储键（需求指定） */
+  const STORAGE_KEY = 'prompt_vault_v1';
+
+  /** 数据版本号，便于以后做迁移 */
+  const DATA_VERSION = 1;
+
+  /** 正文里变量的匹配规则：{{ 变量名 }}，变量名内部不允许再出现花括号 */
+  const VAR_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
+
+  /** markdown 代码围栏（用常量拼接，避免与模板字符串冲突） */
+  const FENCE = '```';
+
+  /**
+   * 首次打开时预置的 3 条示例 Prompt。
+   * 用「行数组 + join('\n')」书写，保证正文换行清晰可读。
+   */
+  const SEED_PROMPTS = [
+    {
+      title: '代码审查',
+      tags: ['开发', '代码质量'],
+      favorite: true,
+      body: [
+        '你是一位资深的 {{编程语言}} 工程师，请对下面的代码做一次严格的 Code Review。',
+        '',
+        '审查维度：',
+        '1. 正确性：边界条件、空值、并发与异常路径是否存在漏洞；',
+        '2. 可读性：命名、注释、函数职责是否单一；',
+        '3. 性能：是否存在不必要的循环、重复计算或 N+1 查询；',
+        '4. 安全：是否存在注入、越权、敏感信息泄露等风险。',
+        '',
+        '输出格式要求：',
+        '- 先用一句话给出总体结论；',
+        '- 再按「严重 / 建议 / 可选」三档列出问题，每条包含【位置】+【原因】+【修改示例】；',
+        '- 最后给出重构后的关键代码片段。',
+        '',
+        '待审代码（{{业务场景}}）：',
+        FENCE + '{{编程语言}}',
+        '{{代码}}',
+        FENCE
+      ].join('\n')
+    },
+    {
+      title: '周报生成',
+      tags: ['职场', '写作'],
+      favorite: true,
+      body: [
+        '请帮我把下面零散的工作记录，整理成一份结构清晰、重点突出的周报。',
+        '',
+        '我的角色：{{岗位}}',
+        '汇报对象：{{汇报对象}}',
+        '本周工作记录：',
+        '{{本周工作内容}}',
+        '',
+        '下周计划：',
+        '{{下周计划}}',
+        '',
+        '写作要求：',
+        '1. 用「本周成果 / 关键进展 / 风险与阻塞 / 下周计划」四段式结构；',
+        '2. 每条成果尽量量化（数字、比例、时长），没有数据就客观描述影响面；',
+        '3. 语气专业克制，不要空话套话，总长度控制在 400 字以内。'
+      ].join('\n')
+    },
+    {
+      title: 'SQL 优化',
+      tags: ['数据库', '性能'],
+      favorite: false,
+      body: [
+        '你是数据库性能优化专家，请帮我优化下面这条 {{数据库类型}} SQL。',
+        '',
+        '原始 SQL：',
+        FENCE + 'sql',
+        '{{SQL语句}}',
+        FENCE,
+        '',
+        '相关表结构与索引：',
+        FENCE,
+        '{{表结构与索引}}',
+        FENCE,
+        '',
+        '数据量级：{{数据量级}}',
+        '',
+        '请按以下顺序回答：',
+        '1. 指出这条 SQL 的性能瓶颈（全表扫描、索引失效、隐式转换、回表等）；',
+        '2. 给出优化后的 SQL，并说明每一处改动的原因；',
+        '3. 给出建议新增或调整的索引（含建索引语句）；',
+        '4. 如果涉及分页、聚合或大表 JOIN，补充可行的替代方案。'
+      ].join('\n')
+    }
+  ];
+
+  /* ============================== 状态 ============================== */
+
+  /**
+   * 全局唯一状态对象。任何界面变化都必须先改这里，再由 render 反映到 DOM。
+   * @property {Array<Object>} prompts   全部 prompt（唯一数据源）
+   * @property {string|null}   activeId  当前选中的 prompt id
+   * @property {string}        search    搜索关键字
+   * @property {string}        tagFilter 标签筛选值（'' 表示全部）
+   * @property {Object}        varValues 各 prompt 的变量填充值：{ [promptId]: { [varName]: value } }
+   */
+  const state = {
+    prompts: [],
+    activeId: null,
+    search: '',
+    tagFilter: '',
+    varValues: {}
+  };
+
+  /* ============================== DOM 引用（静态节点只取一次） ============================== */
+
+  const el = {
+    searchInput: document.getElementById('searchInput'),
+    tagFilter:   document.getElementById('tagFilter'),
+    promptList:  document.getElementById('promptList'),
+    listFoot:    document.getElementById('listFoot'),
+    titleInput:  document.getElementById('titleInput'),
+    tagsInput:   document.getElementById('tagsInput'),
+    bodyInput:   document.getElementById('bodyInput'),
+    favBtn:      document.getElementById('favBtn'),
+    varsCard:    document.getElementById('varsCard'),
+    varsPanel:   document.getElementById('varsPanel'),
+    varsHint:    document.getElementById('varsHint'),
+    btnClearVars:document.getElementById('btnClearVars'),
+    previewPanel:document.getElementById('previewPanel'),
+    previewHint: document.getElementById('previewHint'),
+    btnNew:      document.getElementById('btnNew'),
+    btnDel:      document.getElementById('btnDel'),
+    btnExport:   document.getElementById('btnExport'),
+    btnImport:   document.getElementById('btnImport'),
+    btnCopy:     document.getElementById('btnCopy'),
+    importFile:  document.getElementById('importFile'),
+    toast:       document.getElementById('toast'),
+    editor:      document.getElementById('editor')
+  };
+
+  /* ============================== 工具函数 ============================== */
+
+  /**
+   * 生成唯一 id。
+   * @returns {string} 形如 "p_lz3k9x_4f2a" 的字符串
+   */
+  function uid() {
+    const rnd = Math.random().toString(36).slice(2, 8);
+    return 'p_' + Date.now().toString(36) + '_' + rnd;
+  }
+
+  /**
+   * 当前时间戳（毫秒）。
+   * @returns {number}
+   */
+  function now() { return Date.now(); }
+
+  /**
+   * HTML 转义，防止用户输入破坏结构。
+   * @param {*} str 任意值
+   * @returns {string} 转义后的安全字符串
+   */
+  function esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
+   * 把 "a, b，c" 解析成去重后的标签数组。
+   * @param {string} raw 用户输入的原始标签串
+   * @returns {string[]} 清洗后的标签数组
+   */
+  function parseTags(raw) {
+    const out = [];
+    String(raw || '').split(/[,，;；]/).forEach(function (t) {
+      const v = t.trim();
+      if (v && out.indexOf(v) === -1) out.push(v);
+    });
+    return out;
+  }
+
+  /**
+   * 扫描正文中的所有 {{变量}} 占位符，按出现顺序去重。
+   * @param {string} text 正文
+   * @returns {string[]} 变量名数组
+   */
+  function extractVars(text) {
+    const names = [];
+    const re = new RegExp(VAR_RE.source, 'g');
+    let m;
+    while ((m = re.exec(String(text || '')))) {
+      const name = m[1].trim();
+      if (name && names.indexOf(name) === -1) names.push(name);
+    }
+    return names;
+  }
+
+  /**
+   * 统计某个变量在正文中出现的次数。
+   * @param {string} text 正文
+   * @param {string} name 变量名
+   * @returns {number} 出现次数
+   */
+  function countVar(text, name) {
+    const re = new RegExp(VAR_RE.source, 'g');
+    let n = 0, m;
+    while ((m = re.exec(String(text || '')))) {
+      if (m[1].trim() === name) n++;
+    }
+    return n;
+  }
+
+  /**
+   * 用变量值替换正文中的占位符（未填值的占位符原样保留）。
+   * @param {string} text   正文
+   * @param {Object} values 变量值表 { 变量名: 值 }
+   * @returns {string} 替换后的最终 prompt 文本
+   */
+  function fillTemplate(text, values) {
+    return String(text || '').replace(new RegExp(VAR_RE.source, 'g'), function (whole, rawName) {
+      const name = rawName.trim();
+      const v = values && values[name];
+      return (v == null || String(v) === '') ? whole : String(v);
+    });
+  }
+
+  /**
+   * 深拷贝一个 prompt，并补齐字段，避免外部脏数据破坏渲染。
+   * @param {Object} raw 原始对象
+   * @returns {Object} 规范化后的 prompt
+   */
+  function normalizePrompt(raw) {
+    const p = raw && typeof raw === 'object' ? raw : {};
+    return {
+      id:       typeof p.id === 'string' && p.id ? p.id : uid(),
+      title:    typeof p.title === 'string' ? p.title : '未命名 Prompt',
+      body:     typeof p.body === 'string' ? p.body : '',
+      tags:     Array.isArray(p.tags) ? p.tags.map(function (t) { return String(t).trim(); }).filter(Boolean) : [],
+      favorite: !!p.favorite,
+      createdAt: typeof p.createdAt === 'number' ? p.createdAt : now(),
+      updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : now()
+    };
+  }
+
+  /**
+   * 取当前选中的 prompt。
+   * @returns {Object|null}
+   */
+  function getActive() {
+    for (let i = 0; i < state.prompts.length; i++) {
+      if (state.prompts[i].id === state.activeId) return state.prompts[i];
+    }
+    return null;
+  }
+
+  /**
+   * 取当前 prompt 的变量值表（不存在则懒创建）。
+   * @param {string} id prompt id
+   * @returns {Object} { 变量名: 值 }
+   */
+  function valuesOf(id) {
+    if (!state.varValues[id]) state.varValues[id] = {};
+    return state.varValues[id];
+  }
+
+  /**
+   * 读取所有 prompt 里出现过的标签（去重、按拼音/字符序）。
+   * @returns {string[]}
+   */
+  function allTags() {
+    const set = [];
+    state.prompts.forEach(function (p) {
+      p.tags.forEach(function (t) { if (set.indexOf(t) === -1) set.push(t); });
+    });
+    return set.sort(function (a, b) { return a.localeCompare(b, 'zh-Hans-CN'); });
+  }
+
+  /**
+   * 按「搜索关键字 + 标签筛选」过滤，并按「收藏优先 → 更新时间倒序」排序。
+   * @returns {Array<Object>} 用于左侧列表渲染的 prompt 数组
+   */
+  function visiblePrompts() {
+    const kw = state.search.trim().toLowerCase();
+    const list = state.prompts.filter(function (p) {
+      if (state.tagFilter && p.tags.indexOf(state.tagFilter) === -1) return false;
+      if (!kw) return true;
+      return (p.title + '\n' + p.tags.join(' ') + '\n' + p.body).toLowerCase().indexOf(kw) !== -1;
+    });
+    return list.sort(function (a, b) {
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;   // 收藏的排最前
+      return b.updatedAt - a.updatedAt;                              // 其余按最近修改
+    });
+  }
+
+  /**
+   * 把时间戳格式化成「刚刚 / N 分钟前 / N 天前 / YYYY-MM-DD」。
+   * @param {number} ts 时间戳（毫秒）
+   * @returns {string}
+   */
+  function timeAgo(ts) {
+    const diff = now() - ts;
+    if (diff < 60 * 1000) return '刚刚';
+    if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + ' 分钟前';
+    if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / 3600000) + ' 小时前';
+    if (diff < 7 * 24 * 60 * 60 * 1000) return Math.floor(diff / 86400000) + ' 天前';
+    const d = new Date(ts);
+    const pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  /* ============================== 持久化 ============================== */
+
+  let saveTimer = null;
+
+  /**
+   * 立即把 state 写入 localStorage。
+   * @returns {boolean} 写入成功返回 true（隐私模式等场景可能失败）
+   */
+  function saveNow() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: DATA_VERSION,
+        activeId: state.activeId,
+        varValues: state.varValues,
+        prompts: state.prompts
+      }));
+      return true;
+    } catch (e) {
+      console.warn('[Prompt Vault] 保存失败：', e);
+      toast('保存失败：浏览器存储不可用或已满', 'err');
+      return false;
+    }
+  }
+
+  /**
+   * 防抖保存，避免每敲一个字都写磁盘。
+   * @param {boolean} [immediate] 传 true 时立即写入
+   * @returns {void}
+   */
+  function save(immediate) {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (immediate) { saveNow(); return; }
+    saveTimer = setTimeout(function () { saveTimer = null; saveNow(); }, 260);
+  }
+
+  /**
+   * 从 localStorage 读取数据。
+   * @returns {Object|null} 解析成功返回数据对象，否则返回 null（首次访问 / 数据损坏）
+   */
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !Array.isArray(data.prompts) || data.prompts.length === 0) return null;
+      return data;
+    } catch (e) {
+      console.warn('[Prompt Vault] 读取失败，将使用示例数据：', e);
+      return null;
+    }
+  }
+
+  /* ============================== 轻提示 ============================== */
+
+  let toastTimer = null;
+
+  /**
+   * 底部飘一条提示。
+   * @param {string} msg        提示文案
+   * @param {'ok'|'err'|''} [kind] 样式类型
+   * @returns {void}
+   */
+  function toast(msg, kind) {
+    el.toast.textContent = msg;
+    el.toast.className = 'toast show ' + (kind || '');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.toast.className = 'toast ' + (kind || ''); }, 2000);
+  }
+
+  /* ============================== 渲染层 ============================== */
+
+  /**
+   * 全量渲染：列表 + 标签下拉 + 编辑器 + 变量区 + 预览区。
+   * @returns {void}
+   */
+  function render() {
+    renderTagOptions();
+    renderList();
+    renderEditor();
+    renderVars();
+    renderPreview();
+  }
+
+  /**
+   * 渲染左侧列表（含空状态与底部统计）。
+   * @returns {void}
+   */
+  function renderList() {
+    const list = visiblePrompts();
+
+    if (list.length === 0) {
+      el.promptList.innerHTML = '<div class="empty-tip">' +
+        (state.prompts.length === 0 ? '还没有任何 Prompt<br>点左上角「＋ 新建」开始吧' : '没有匹配的结果<br>换个关键字或标签试试') +
+        '</div>';
+    } else {
+      el.promptList.innerHTML = list.map(function (p) {
+        const tags = p.tags.map(function (t) {
+          return '<span class="tag">' + esc(t) + '</span>';
+        }).join('');
+        return '' +
+          '<div class="item' + (p.id === state.activeId ? ' active' : '') + '" data-id="' + esc(p.id) + '">' +
+            '<div class="item-top">' +
+              '<div class="item-title">' + (esc(p.title) || '未命名 Prompt') + '</div>' +
+              '<button class="star' + (p.favorite ? ' on' : '') + '" data-act="fav" ' +
+                      'title="收藏 / 取消收藏" type="button">' + (p.favorite ? '★' : '☆') + '</button>' +
+            '</div>' +
+            (tags ? '<div class="item-tags">' + tags + '</div>' : '') +
+            '<div class="item-meta">' + timeAgo(p.updatedAt) + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    el.listFoot.textContent = '共 ' + state.prompts.length + ' 条' +
+      (list.length !== state.prompts.length ? '（筛选出 ' + list.length + ' 条）' : '') +
+      ' · 收藏 ' + state.prompts.filter(function (p) { return p.favorite; }).length + ' 条';
+
+    // 删除按钮在没有选中项时禁用
+    el.btnDel.disabled = !getActive();
+  }
+
+  /**
+   * 渲染标签筛选下拉框，并尽量保留当前选中值。
+   * @returns {void}
+   */
+  function renderTagOptions() {
+    const tags = allTags();
+    if (state.tagFilter && tags.indexOf(state.tagFilter) === -1) state.tagFilter = '';
+    el.tagFilter.innerHTML = '<option value="">全部标签（' + tags.length + '）</option>' +
+      tags.map(function (t) {
+        return '<option value="' + esc(t) + '">' + esc(t) + '</option>';
+      }).join('');
+    el.tagFilter.value = state.tagFilter;
+  }
+
+  /**
+   * 渲染右侧编辑区（标题 / 标签 / 正文 / 收藏按钮）。
+   * 仅在「切换选中项」时调用，避免打断正在输入的光标。
+   * @returns {void}
+   */
+  function renderEditor() {
+    const p = getActive();
+    const disabled = !p;
+
+    el.titleInput.disabled = disabled;
+    el.tagsInput.disabled = disabled;
+    el.bodyInput.disabled = disabled;
+    el.favBtn.disabled = disabled;
+
+    if (!p) {
+      el.titleInput.value = '';
+      el.tagsInput.value = '';
+      el.bodyInput.value = '';
+      el.favBtn.textContent = '☆';
+      el.favBtn.classList.remove('on');
+      return;
+    }
+
+    el.titleInput.value = p.title;
+    el.tagsInput.value = p.tags.join(', ');
+    el.bodyInput.value = p.body;
+    el.favBtn.textContent = p.favorite ? '★' : '☆';
+    el.favBtn.classList.toggle('on', p.favorite);
+  }
+
+  /**
+   * 渲染变量输入区：为正文里每个 {{变量}} 生成一个输入框。
+   * 若焦点本来就在某个变量输入框里，重建后会把焦点还回去。
+   * @returns {void}
+   */
+  function renderVars() {
+    const p = getActive();
+
+    if (!p) {
+      el.varsPanel.innerHTML = '<div class="placeholder-note">先选中或新建一条 Prompt。</div>';
+      el.varsHint.textContent = '';
+      el.btnClearVars.disabled = true;
+      return;
+    }
+
+    // 记住当前聚焦的变量名，重建 DOM 后恢复焦点与光标
+    const focused = document.activeElement;
+    const focusedVar = (focused && focused.dataset && focused.dataset.var) ? focused.dataset.var : null;
+    const caret = focusedVar && focused.selectionStart != null ? focused.selectionStart : null;
+
+    const vars = extractVars(p.body);
+    const values = valuesOf(p.id);
+
+    // 清理已从正文中删除的变量值
+    Object.keys(values).forEach(function (k) {
+      if (vars.indexOf(k) === -1) delete values[k];
+    });
+
+    el.varsHint.textContent = vars.length ? '检测到 ' + vars.length + ' 个变量' : '';
+    el.btnClearVars.disabled = vars.length === 0;
+
+    if (vars.length === 0) {
+      el.varsPanel.innerHTML = '<div class="placeholder-note">正文中还没有变量。' +
+        '写上 <code>{{变量名}}</code> 就会自动出现在这里。</div>';
+      return;
+    }
+
+    el.varsPanel.innerHTML = vars.map(function (name) {
+      const n = countVar(p.body, name);
+      return '' +
+        '<div class="var-item">' +
+          '<div class="var-name">' + esc('{{' + name + '}}') +
+            (n > 1 ? '<span class="var-count">×' + n + '</span>' : '') +
+          '</div>' +
+          '<input class="input" type="text" data-var="' + esc(name) + '" ' +
+                 'placeholder="填写 ' + esc(name) + ' 的值…" value="' + esc(values[name] || '') + '">' +
+        '</div>';
+    }).join('');
+
+    if (focusedVar) {
+      const inputs = el.varsPanel.querySelectorAll('input[data-var]');
+      for (let i = 0; i < inputs.length; i++) {
+        if (inputs[i].dataset.var === focusedVar) {
+          inputs[i].focus();
+          if (caret != null) {
+            try { inputs[i].setSelectionRange(caret, caret); } catch (e) { /* 忽略 */ }
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * 渲染最终 Prompt 预览：已填值的变量直接内联，未填值的占位符高亮显示。
+   * @returns {void}
+   */
+  function renderPreview() {
+    const p = getActive();
+    el.previewPanel.textContent = '';
+    el.btnCopy.disabled = !p;
+
+    if (!p) {
+      el.previewHint.textContent = '';
+      el.previewPanel.textContent = '暂无可预览的内容。';
+      el.previewPanel.classList.add('ph-empty');
+      return;
+    }
+    el.previewPanel.classList.remove('ph-empty');
+
+    const values = valuesOf(p.id);
+    const text = p.body || '';
+    const frag = document.createDocumentFragment();
+    const re = new RegExp(VAR_RE.source, 'g');
+    let last = 0, m, filled = 0, total = 0;
+
+    while ((m = re.exec(text))) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const name = m[1].trim();
+      const val = values[name];
+      total++;
+      if (val != null && String(val) !== '') {
+        filled++;
+        frag.appendChild(document.createTextNode(String(val)));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'ph';
+        span.textContent = m[0];
+        frag.appendChild(span);
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    if (!text) frag.appendChild(document.createTextNode('（正文为空）'));
+
+    el.previewPanel.appendChild(frag);
+
+    const finalText = fillTemplate(text, values);
+    el.previewHint.textContent = total
+      ? '变量 ' + filled + '/' + total + ' 已填 · ' + finalText.length + ' 字符'
+      : finalText.length + ' 字符';
+  }
+
+  /* ============================== 业务动作 ============================== */
+
+  /**
+   * 新建一条 Prompt 并选中它。
+   * @returns {void}
+   */
+  function createPrompt() {
+    const p = normalizePrompt({
+      title: '未命名 Prompt',
+      tags: [],
+      body: '',
+      favorite: false,
+      createdAt: now(),
+      updatedAt: now()
+    });
+    state.prompts.unshift(p);
+    state.activeId = p.id;
+    state.search = '';
+    state.tagFilter = '';
+    el.searchInput.value = '';
+    save(true);
+    render();
+    el.titleInput.focus();
+    el.titleInput.select();
+  }
+
+  /**
+   * 删除当前选中的 Prompt（带确认）。
+   * @returns {void}
+   */
+  function deletePrompt() {
+    const p = getActive();
+    if (!p) return;
+    if (!confirm('确定删除「' + (p.title || '未命名 Prompt') + '」吗？此操作不可撤销。')) return;
+
+    state.prompts = state.prompts.filter(function (x) { return x.id !== p.id; });
+    delete state.varValues[p.id];
+    state.activeId = state.prompts.length ? visiblePrompts()[0] ? visiblePrompts()[0].id : state.prompts[0].id : null;
+    save(true);
+    render();
+    toast('已删除', 'ok');
+  }
+
+  /**
+   * 选中指定 Prompt（会重绘编辑器）。
+   * @param {string} id prompt id
+   * @returns {void}
+   */
+  function selectPrompt(id) {
+    if (state.activeId === id) return;
+    state.activeId = id;
+    save(true);
+    renderList();
+    renderEditor();
+    renderVars();
+    renderPreview();
+  }
+
+  /**
+   * 切换某条 Prompt 的收藏状态。
+   * @param {string} id prompt id
+   * @returns {void}
+   */
+  function toggleFavorite(id) {
+    const p = state.prompts.filter(function (x) { return x.id === id; })[0];
+    if (!p) return;
+    p.favorite = !p.favorite;
+    p.updatedAt = now();
+    save(true);
+    renderList();
+    if (p.id === state.activeId) {
+      el.favBtn.textContent = p.favorite ? '★' : '☆';
+      el.favBtn.classList.toggle('on', p.favorite);
+    }
+  }
+
+  /**
+   * 导出全部数据为 JSON 文件。
+   * @returns {void}
+   */
+  function exportJson() {
+    if (state.prompts.length === 0) { toast('没有可导出的数据', 'err'); return; }
+    const data = {
+      app: 'prompt-vault',
+      version: DATA_VERSION,
+      exportedAt: new Date().toISOString(),
+      prompts: state.prompts
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    a.href = url;
+    a.download = 'prompt-vault-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    toast('已导出 ' + state.prompts.length + ' 条 Prompt', 'ok');
+  }
+
+  /**
+   * 导入 JSON：兼容 { prompts: [...] } 与裸数组两种格式；id 冲突时自动重分配。
+   * @param {string} text JSON 文本
+   * @returns {void}
+   */
+  function importJson(text) {
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      toast('导入失败：不是合法的 JSON 文件', 'err');
+      return;
+    }
+
+    const rawList = Array.isArray(data) ? data : (data && Array.isArray(data.prompts) ? data.prompts : null);
+    if (!rawList) { toast('导入失败：没找到 prompts 数组', 'err'); return; }
+    if (rawList.length === 0) { toast('导入失败：文件里没有数据', 'err'); return; }
+
+    const existIds = state.prompts.map(function (p) { return p.id; });
+    let added = 0;
+    rawList.forEach(function (raw) {
+      const p = normalizePrompt(raw);
+      if (existIds.indexOf(p.id) !== -1) p.id = uid();   // id 冲突 → 当成新条目
+      existIds.push(p.id);
+      state.prompts.push(p);
+      added++;
+    });
+
+    if (!getActive()) state.activeId = state.prompts[0].id;
+    save(true);
+    render();
+    toast('成功导入 ' + added + ' 条 Prompt', 'ok');
+  }
+
+  /**
+   * 复制最终 prompt 到剪贴板（file:// 下自动降级到 execCommand）。
+   * @returns {void}
+   */
+  function copyFinalPrompt() {
+    const p = getActive();
+    if (!p) return;
+    const text = fillTemplate(p.body, valuesOf(p.id));
+    if (!text.trim()) { toast('内容为空，没什么可复制的', 'err'); return; }
+
+    const done = function () { toast('已复制到剪贴板（' + text.length + ' 字符）', 'ok'); };
+    const fallback = function () {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      ok ? done() : toast('复制失败，请手动选中预览文本复制', 'err');
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  /* ============================== 事件绑定 ============================== */
+
+  /** 左侧列表：点击选中 + 点击星标收藏（事件委托） */
+  el.promptList.addEventListener('click', function (e) {
+    const item = e.target.closest('.item');
+    if (!item) return;
+    const id = item.dataset.id;
+    if (e.target.closest('[data-act="fav"]')) { toggleFavorite(id); return; }
+    selectPrompt(id);
+  });
+
+  /** 搜索框 */
+  el.searchInput.addEventListener('input', function () {
+    state.search = el.searchInput.value;
+    renderList();
+  });
+
+  /** 标签筛选下拉 */
+  el.tagFilter.addEventListener('change', function () {
+    state.tagFilter = el.tagFilter.value;
+    renderList();
+  });
+
+  /** 标题输入：实时同步到 state 与列表 */
+  el.titleInput.addEventListener('input', function () {
+    const p = getActive();
+    if (!p) return;
+    p.title = el.titleInput.value;
+    p.updatedAt = now();
+    renderList();
+    save();
+  });
+
+  /** 标签输入 */
+  el.tagsInput.addEventListener('input', function () {
+    const p = getActive();
+    if (!p) return;
+    p.tags = parseTags(el.tagsInput.value);
+    p.updatedAt = now();
+    renderTagOptions();
+    renderList();
+    save();
+  });
+
+  /** 正文输入：只重绘「变量区 + 预览区」，保住光标 */
+  el.bodyInput.addEventListener('input', function () {
+    const p = getActive();
+    if (!p) return;
+    p.body = el.bodyInput.value;
+    p.updatedAt = now();
+    renderVars();
+    renderPreview();
+    save();
+  });
+
+  /** 变量输入框：事件委托，只重绘预览区 */
+  el.varsPanel.addEventListener('input', function (e) {
+    const p = getActive();
+    if (!p || !e.target.dataset || !e.target.dataset.var) return;
+    valuesOf(p.id)[e.target.dataset.var] = e.target.value;
+    renderPreview();
+    save();
+  });
+
+  /** 编辑器失焦时刷新一下列表里的时间显示 */
+  el.editor.addEventListener('focusout', function () { renderList(); });
+
+  /** 清空当前 Prompt 的所有变量值 */
+  el.btnClearVars.addEventListener('click', function () {
+    const p = getActive();
+    if (!p) return;
+    state.varValues[p.id] = {};
+    save(true);
+    renderVars();
+    renderPreview();
+    toast('已清空变量值', 'ok');
+  });
+
+  /** 收藏按钮 */
+  el.favBtn.addEventListener('click', function () {
+    const p = getActive();
+    if (p) toggleFavorite(p.id);
+  });
+
+  /** 工具栏按钮 */
+  el.btnNew.addEventListener('click', createPrompt);
+  el.btnDel.addEventListener('click', deletePrompt);
+  el.btnExport.addEventListener('click', exportJson);
+  el.btnImport.addEventListener('click', function () { el.importFile.click(); });
+  el.btnCopy.addEventListener('click', copyFinalPrompt);
+
+  /** 导入文件选择 */
+  el.importFile.addEventListener('change', function () {
+    const file = el.importFile.files && el.importFile.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () { importJson(String(reader.result || '')); };
+    reader.onerror = function () { toast('读取文件失败', 'err'); };
+    reader.readAsText(file, 'utf-8');
+    el.importFile.value = '';   // 允许连续导入同一个文件
+  });
+
+  /** 快捷键：Ctrl/Cmd + S 立即保存；Ctrl/Cmd + K 聚焦搜索；Esc 取消搜索 */
+  document.addEventListener('keydown', function (e) {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveNow() ? toast('已保存到本机', 'ok') : null;
+    } else if (mod && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      el.searchInput.focus();
+      el.searchInput.select();
+    } else if (e.key === 'Escape' && document.activeElement === el.searchInput) {
+      el.searchInput.value = '';
+      state.search = '';
+      renderList();
+    }
+  });
+
+  /** 离开页面前兜底保存 + 心跳刷新列表时间 */
+  window.addEventListener('beforeunload', function () { saveNow(); });
+  setInterval(function () { if (state.prompts.length) renderList(); }, 60000);
+
+  /* ============================== 启动 ============================== */
+
+  /**
+   * 初始化：读取本地数据（没有则写入示例数据）并首次渲染。
+   * @returns {void}
+   */
+  function init() {
+    const saved = load();
+
+    if (saved) {
+      state.prompts = saved.prompts.map(normalizePrompt);
+      state.varValues = (saved.varValues && typeof saved.varValues === 'object') ? saved.varValues : {};
+      const exists = state.prompts.some(function (p) { return p.id === saved.activeId; });
+      state.activeId = exists ? saved.activeId : (state.prompts[0] ? state.prompts[0].id : null);
+    } else {
+      const base = now();
+      state.prompts = SEED_PROMPTS.map(function (seed, i) {
+        const p = normalizePrompt(seed);
+        p.createdAt = base - (SEED_PROMPTS.length - i) * 1000;   // 让示例的顺序稳定
+        p.updatedAt = base - (SEED_PROMPTS.length - i) * 1000;
+        return p;
+      });
+      state.activeId = state.prompts[0].id;
+      saveNow();   // 首次打开即落盘，保证刷新后数据仍在
+    }
+
+    render();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
